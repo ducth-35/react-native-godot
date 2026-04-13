@@ -49,10 +49,13 @@ private:
 	jni::global_ref<NativeGodotModuleJNI::javaobject> javaPart_;
 	jsi::Runtime *rnRuntime_;
 	std::shared_ptr<facebook::react::CallInvoker> callInvoker_;
+	bool isBridgeless_;
 	bool installTurboModule();
+	void setRuntime(jsi::Runtime *runtime);
 
 	explicit NativeGodotModuleJNI(
 			jni::alias_ref<NativeGodotModuleJNI::jhybridobject> jThis,
 			jsi::Runtime *rnRuntime,
-			const std::shared_ptr<facebook::react::CallInvoker> &jsCallInvoker);
+			const std::shared_ptr<facebook::react::CallInvoker> &jsCallInvoker,
+			bool isBridgeless);
 };

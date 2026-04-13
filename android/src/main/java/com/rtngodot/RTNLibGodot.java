@@ -93,13 +93,24 @@ public class RTNLibGodot implements IGodotLib, GodotHost, GodotRenderView {
 	public boolean initialize(Godot godot, AssetManager assetManager, GodotIO godotIO, GodotNetUtils godotNetUtils, DirectoryAccessHandler directoryAccessHandler, FileAccessHandler fileAccessHandler, boolean b) {
 		ClassLoader loader = RTNLibGodot.class.getClassLoader();
 
+		WindowSurfaceData wsData = windowData.get("");
+		if (wsData == null) {
+			Log.e(TAG, "Window surface not initialized. Ensure init() is called before initialize()");
+			return false;
+		}
+
+		if (wsData.surface == null) {
+			Log.e(TAG, "Window surface is null");
+			return false;
+		}
+
 		initialize(
 				assetManager,
 				godotNetUtils,
 				directoryAccessHandler,
 				fileAccessHandler,
 				godotIO,
-				Objects.requireNonNull(windowData.get("")).surface,
+				wsData.surface,
 				surfaceSize,
 				surfaceSize,
 				godot,
@@ -370,6 +381,7 @@ public class RTNLibGodot implements IGodotLib, GodotHost, GodotRenderView {
 		WindowSurfaceData wsData = new WindowSurfaceData(control, width, height, persistent);
 
 		windowData.put(name, wsData);
+		Log.d(TAG, "Created window surface: " + name + " (" + width + "x" + height + ")");
 	}
 
 	@NonNull
@@ -447,6 +459,7 @@ public class RTNLibGodot implements IGodotLib, GodotHost, GodotRenderView {
 
 	public void init(Activity activity) {
 		if (inited) {
+			Log.w(TAG, "Already initialized, skipping init()");
 			return;
 		}
 
@@ -456,8 +469,12 @@ public class RTNLibGodot implements IGodotLib, GodotHost, GodotRenderView {
 			Log.e(TAG, "Activity not set, abort init");
 			return;
 		}
+		Log.d(TAG, "Initializing RTNLibGodot...");
 		DisplayMetrics metrics = new DisplayMetrics();
 		mActivity.getWindowManager().getDefaultDisplay().getMetrics(metrics);
+
+		surfaceSize = Math.min(metrics.widthPixels, metrics.heightPixels);
+		Log.d(TAG, "Surface size: " + surfaceSize + " (Display: " + metrics.widthPixels + "x" + metrics.heightPixels + ")");
 
 		createWindowSurface("", metrics.widthPixels, metrics.heightPixels, true);
 
@@ -473,15 +490,18 @@ public class RTNLibGodot implements IGodotLib, GodotHost, GodotRenderView {
 
 		if (!godot.initEngine(this, commands, runtimePlugins)) {
 			Log.e(TAG, "Unable to initialize Godot engine layer");
+			return;
 		}
 
 		mInputHandler = new GodotInputHandler(mActivity, godot);
 
 		inited = true;
+		Log.d(TAG, "RTNLibGodot initialized successfully");
 	}
 
 	public void shutdown() {
 		if (inited) {
+			Log.d(TAG, "Shutting down RTNLibGodot...");
 			cleanup();
 			inited = false;
 		}

@@ -35,10 +35,18 @@ jni::local_ref<NativeGodotModuleJNI::jhybriddata> NativeGodotModuleJNI::initHybr
 		jni::alias_ref<facebook::react::CallInvokerHolder::javaobject>
 				jsCallInvokerHolder) {
 	auto jsCallInvoker = jsCallInvokerHolder->cthis()->getCallInvoker();
+	jsi::Runtime *runtime = nullptr;
+	const bool isBridgeless = (jsContext == 0);
+
+	if (!isBridgeless) {
+		runtime = (jsi::Runtime *)jsContext;
+	}
+
 	return makeCxxInstance(
 			jThis,
-			(jsi::Runtime *)jsContext,
-			jsCallInvoker);
+			runtime,
+			jsCallInvoker,
+			isBridgeless);
 }
 
 void NativeGodotModuleJNI::registerNatives() {
@@ -49,19 +57,37 @@ void NativeGodotModuleJNI::registerNatives() {
 }
 
 bool NativeGodotModuleJNI::installTurboModule() {
+	if (rnRuntime_ == nullptr) {
+		if (isBridgeless_) {
+			LOGW("Runtime not yet available in Bridgeless mode");
+			return true;
+		}
+		LOGE("Runtime is null, cannot install TurboModule.");
+		return false;
+	}
+
 	jsi::Runtime &rnRuntime = *rnRuntime_;
 	jsi::Value godotModule = createNativeGodotModule(rnRuntime, callInvoker_);
 	if (!godotModule.isObject()) {
 		LOGE("Could not install NativeGodotModule.");
 		return false;
 	}
+	LOGI("NativeGodotModule installed successfully");
 	return true;
+}
+
+void NativeGodotModuleJNI::setRuntime(jsi::Runtime *runtime) {
+	if (isBridgeless_ && rnRuntime_ == nullptr) {
+		rnRuntime_ = runtime;
+	}
 }
 
 NativeGodotModuleJNI::NativeGodotModuleJNI(
 		jni::alias_ref<NativeGodotModuleJNI::jhybridobject> jThis,
 		jsi::Runtime *rnRuntime,
-		const std::shared_ptr<facebook::react::CallInvoker> &jsCallInvoker) :
+		const std::shared_ptr<facebook::react::CallInvoker> &jsCallInvoker,
+		bool isBridgeless) :
 		javaPart_(jni::make_global(jThis)),
 		rnRuntime_(rnRuntime),
-		callInvoker_(jsCallInvoker) {}
+		callInvoker_(jsCallInvoker),
+		isBridgeless_(isBridgeless) {}

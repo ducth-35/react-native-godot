@@ -141,9 +141,22 @@ void LibGodot::cleanup(JNIEnv *env) {
 }
 
 JNIEnv *LibGodot::get_jni_env() {
+	if (!java_vm) {
+		LOGE("LibGodot::get_jni_env() called but java_vm is null!");
+		return nullptr;
+	}
+
 	JNIEnv *env;
 	java_vm->AttachCurrentThread(&env, nullptr);
 	return env;
+}
+
+JavaVM *LibGodot::get_java_vm() {
+	return java_vm;
+}
+
+void LibGodot::set_java_vm(JavaVM *vm) {
+	java_vm = vm;
 }
 
 static std::function<void()> createUpdateWindowFunc(std::string p_window_name, int p_width, int p_height, ANativeWindow *p_window_surface, bool p_change_surface) {

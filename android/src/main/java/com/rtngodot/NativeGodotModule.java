@@ -36,6 +36,7 @@ import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.common.annotations.FrameworkAPI;
 import com.facebook.react.module.annotations.ReactModule;
 import com.facebook.react.turbomodule.core.CallInvokerHolderImpl;
+import com.facebook.react.turbomodule.core.interfaces.CallInvokerHolder;
 import com.migeran.NativeGodotModuleSpec;
 
 @OptIn(markerClass = FrameworkAPI.class)
@@ -49,11 +50,38 @@ public class NativeGodotModule extends NativeGodotModuleSpec {
 
 	public NativeGodotModule(ReactApplicationContext context) {
 		super(context);
-		CallInvokerHolderImpl holder =
-				(CallInvokerHolderImpl)context.getCatalystInstance().getJSCallInvokerHolder();
-		mHybridData = initHybrid(
-				Objects.requireNonNull(context.getJavaScriptContextHolder()).get(),
-				holder);
+
+		RTNLibGodot.getInstance().init(context.getCurrentActivity());
+
+		CallInvokerHolderImpl holder = null;
+
+		try {
+			CallInvokerHolder callInvokerHolder = context.getJSCallInvokerHolder();
+			if (callInvokerHolder instanceof CallInvokerHolderImpl) {
+				holder = (CallInvokerHolderImpl) callInvokerHolder;
+			}
+		} catch (Exception e) {
+			// Fallback to bridge mode below.
+		}
+
+		if (holder == null) {
+			try {
+				holder = (CallInvokerHolderImpl) context.getCatalystInstance().getJSCallInvokerHolder();
+			} catch (Exception e) {
+				throw new RuntimeException("Failed to get CallInvokerHolder in both Bridgeless and Bridge modes", e);
+			}
+		}
+
+		long jsContext = 0;
+		try {
+			if (context.getJavaScriptContextHolder() != null) {
+				jsContext = Objects.requireNonNull(context.getJavaScriptContextHolder()).get();
+			}
+		} catch (Exception e) {
+			jsContext = 0;
+		}
+
+		mHybridData = initHybrid(jsContext, holder);
 	}
 
 	private native HybridData initHybrid(long jsContext, CallInvokerHolderImpl jsCallInvokerHolder);

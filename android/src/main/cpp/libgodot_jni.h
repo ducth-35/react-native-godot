@@ -87,6 +87,8 @@ public:
 
 	static JavaVM *get_java_vm();
 
+	static void set_java_vm(JavaVM *vm);
+
 	static void initialize(JNIEnv *env, jobject p_asset_manager, jobject p_net_utils, jobject p_dir_access_handler, jobject p_file_access_handler, jobject p_godot_io, jobject p_main_surface, jint p_width, jint p_height, jobject p_godot_engine, jobject p_host_activity, jobject p_class_loader);
 
 	static void cleanup(JNIEnv *env);

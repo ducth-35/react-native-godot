@@ -67,6 +67,13 @@ public class RTNGodotView extends SurfaceView implements SurfaceHolder.Callback2
 		getHolder().addCallback(this);
 	}
 
+	private GodotInputHandler getInputHandler() {
+		if (mInputHandler == null) {
+			mInputHandler = RTNLibGodot.getInstance().getInputHandler();
+		}
+		return mInputHandler;
+	}
+
 	public void setWindowName(String newWindowName) {
 		windowName = newWindowName;
 	}
@@ -101,17 +108,23 @@ public class RTNGodotView extends SurfaceView implements SurfaceHolder.Callback2
 	@Override
 	public boolean onTouchEvent(MotionEvent event) {
 		super.onTouchEvent(event);
-		return mInputHandler.onTouchEvent(event);
+		GodotInputHandler handler = getInputHandler();
+		if (handler == null) return false;
+		return handler.onTouchEvent(event);
 	}
 
 	@Override
 	public boolean onGenericMotionEvent(MotionEvent event) {
-		return mInputHandler.onGenericMotionEvent(event);
+		GodotInputHandler handler = getInputHandler();
+		if (handler == null) return false;
+		return handler.onGenericMotionEvent(event);
 	}
 
 	@Override
 	public boolean onCapturedPointerEvent(MotionEvent event) {
-		return mInputHandler.onGenericMotionEvent(event);
+		GodotInputHandler handler = getInputHandler();
+		if (handler == null) return false;
+		return handler.onGenericMotionEvent(event);
 	}
 
 	private boolean canCapturePointer() {
@@ -122,19 +135,22 @@ public class RTNGodotView extends SurfaceView implements SurfaceHolder.Callback2
 	public void requestPointerCapture() {
 		if (canCapturePointer()) {
 			super.requestPointerCapture();
-			mInputHandler.onPointerCaptureChange(true);
+			GodotInputHandler handler = getInputHandler();
+			if (handler != null) handler.onPointerCaptureChange(true);
 		}
 	}
 
 	@Override
 	public void releasePointerCapture() {
 		super.releasePointerCapture();
-		mInputHandler.onPointerCaptureChange(false);
+		GodotInputHandler handler = getInputHandler();
+		if (handler != null) handler.onPointerCaptureChange(false);
 	}
 
 	@Override
 	public void onPointerCaptureChange(boolean hasCapture) {
 		super.onPointerCaptureChange(hasCapture);
-		mInputHandler.onPointerCaptureChange(hasCapture);
+		GodotInputHandler handler = getInputHandler();
+		if (handler != null) handler.onPointerCaptureChange(hasCapture);
 	}
 }

@@ -98,7 +98,7 @@ apply plugin: "org.jetbrains.kotlin.android"
 
 
 android {
-  compileSdkVersion safeExtGet('compileSdkVersion', 35)
+  compileSdkVersion safeExtGet('compileSdkVersion', 33)
   namespace "com.rtngodot"
 
   buildFeatures {
@@ -120,9 +120,9 @@ android {
 
 
   defaultConfig {
-    minSdkVersion safeExtGet('minSdkVersion', 24)
-    targetSdkVersion safeExtGet('targetSdkVersion', 35)
-    ndkVersion safeExtGet('ndkVersion', "27.1.12297006")
+    minSdkVersion safeExtGet('minSdkVersion', 29)
+    targetSdkVersion safeExtGet('targetSdkVersion', 33)
+    ndkVersion safeExtGet('ndkVersion', "26.1.10909125")
     buildConfigField("boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString())
     buildConfigField("String", "FLAVOR", "\"rtngodot\"")  // Just a placeholder value.
     ndk {

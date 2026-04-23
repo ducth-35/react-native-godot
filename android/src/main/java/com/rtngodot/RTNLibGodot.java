@@ -394,45 +394,6 @@ public class RTNLibGodot implements IGodotLib, GodotHost, GodotRenderView {
 		return wsData;
 	}
 
-	/**
-	 * TextureView-compatible overload: accepts a Surface directly.
-	 * TextureView does not expose a SurfaceControl, so we bypass the
-	 * reparenting transaction and pass the Surface straight to native.
-	 * The native side will call DisplayServerEmbedded::set_native_surface()
-	 * to switch Godot's rendering target to the TextureView's surface.
-	 */
-	public void updateWindow(String name, Surface surface, int width, int height) {
-		if (!"".equals(name)) {
-			// Non-main windows: render directly into the provided surface.
-			updateWindowNative(name, surface, width, height);
-			return;
-		}
-
-		// Main window path: track dimensions, pass Surface to native side.
-		WindowSurfaceData wsData = windowData.get(name);
-		if (wsData != null) {
-			if (wsData.width != width || wsData.height != height) {
-				Log.i(TAG, String.format("Resizing main window surface to: %d %d", width, height));
-				try (SurfaceControl.Transaction t = new SurfaceControl.Transaction()) {
-					t.setBufferSize(wsData.control, width, height);
-					wsData.width = width;
-					wsData.height = height;
-					t.apply();
-				}
-			}
-			wsData.attachedSurface = surface;
-		} else {
-			Log.w(TAG, "Main window surface data not found; was init() called?");
-		}
-
-		// Tell native to switch rendering to the TextureView's Surface.
-		updateWindowNative(name, surface, width, height);
-	}
-
-	/**
-	 * Legacy SurfaceView overload (kept for backward compatibility).
-	 * Not called by RTNGodotView after TextureView migration.
-	 */
 	public void updateWindow(String name, SurfaceControl control, SurfaceHolder holder, int format, int width, int height) {
 		if (!"".equals(name)) {
 			// Render in the window surface directly
@@ -476,15 +437,6 @@ public class RTNLibGodot implements IGodotLib, GodotHost, GodotRenderView {
 	}
 
 	public void removeWindow(String name) {
-		if ("".equals(name)) {
-			// The main window cannot be removed on the native side.
-			// Instead, revert to the internal SurfaceControl surface so Godot
-			// continues rendering to a valid (though invisible) surface while
-			// the TextureView is detached (e.g. navigating away).
-			revertMainWindowToInternalSurface();
-			return;
-		}
-
 		WindowSurfaceData wsData = windowData.get(name);
 		if (wsData != null) {
 			try (SurfaceControl.Transaction t = new SurfaceControl.Transaction()) {
@@ -502,21 +454,6 @@ public class RTNLibGodot implements IGodotLib, GodotHost, GodotRenderView {
 			}
 		} else {
 			removeWindowNative(name);
-		}
-	}
-
-	/**
-	 * Switches the main window rendering back to the internal SurfaceControl
-	 * surface. Called when the TextureView is destroyed (e.g. navigating away)
-	 * so that Godot renders to a valid surface instead of a released one.
-	 * When a new TextureView appears, updateWindow() will switch again.
-	 */
-	private void revertMainWindowToInternalSurface() {
-		WindowSurfaceData wsData = windowData.get("");
-		if (wsData != null && wsData.surface != null) {
-			Log.i(TAG, "Reverting main window to internal surface");
-			updateWindowNative("", wsData.surface, wsData.width, wsData.height);
-			wsData.attachedSurface = null;
 		}
 	}
 

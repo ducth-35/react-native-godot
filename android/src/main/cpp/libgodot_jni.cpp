@@ -39,7 +39,6 @@
 #include <godot_cpp/classes/input_event_screen_drag.hpp>
 #include <godot_cpp/classes/input_event_screen_touch.hpp>
 #include <godot_cpp/classes/main_loop.hpp>
-#include <godot_cpp/classes/rendering_native_surface.hpp>
 #include <godot_cpp/classes/rendering_native_surface_android.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/window.hpp>
@@ -165,23 +164,8 @@ static std::function<void()> createUpdateWindowFunc(std::string p_window_name, i
 		godot::DisplayServerEmbedded *dse = godot::DisplayServerEmbedded::get_singleton();
 		int32_t windowId = -1;
 		if (p_window_name == "") {
-			// Default window (main)
+			// Default id
 			windowId = 0;
-
-			// When using TextureView, the surface changes from the initial
-			// SurfaceControl-backed surface to the TextureView's surface.
-			// We must update the display server's native surface so Godot
-			// renders into the visible TextureView instead of the orphaned
-			// internal surface.
-			// Uses the same static API as GodotModule::get_or_create_instance().
-			if (p_change_surface) {
-				LOGI("Changing main window native surface (TextureView)");
-				godot::Ref<godot::RenderingNativeSurfaceAndroid> androidSurface = godot::RenderingNativeSurfaceAndroid::create(
-						(uint64_t)p_window_surface, p_width, p_height);
-				godot::RenderingNativeSurface *ptr = godot::Object::cast_to<godot::RenderingNativeSurface>(androidSurface.ptr());
-				godot::Ref<godot::RenderingNativeSurface> nativeSurface(ptr);
-				godot::DisplayServerEmbedded::set_native_surface(nativeSurface);
-			}
 		} else {
 			// Find window
 			godot::MainLoop *mainLoop = godot::Engine::get_singleton()->get_main_loop();
@@ -239,10 +223,6 @@ void LibGodot::updateWindowNative(JNIEnv *env, jstring p_name, jobject p_surface
 	}
 
 	ANativeWindow *windowSurface = ANativeWindow_fromSurface(env, p_surface);
-	if (!windowSurface) {
-		LOGW("updateWindowNative: ANativeWindow_fromSurface returned null for '%s', skipping", windowName.c_str());
-		return;
-	}
 	bool changeSurface = false;
 	{
 		std::lock_guard<std::recursive_mutex> lock(windowMapMutex);
@@ -255,18 +235,10 @@ void LibGodot::updateWindowNative(JNIEnv *env, jstring p_name, jobject p_surface
 		WindowData &winData = windowMap[windowName];
 		if (winData.surface != windowSurface) {
 			changeSurface = true;
-			// Release the OLD ANativeWindow ref before replacing.
-			// Each ANativeWindow_fromSurface() call acquires a ref;
-			// failing to release here would leak one ref per switch.
-			ANativeWindow_release(winData.surface);
 			winData.surface = windowSurface;
-		} else {
-			// Surface pointer is the same — release the duplicate ref
-			// that ANativeWindow_fromSurface() just acquired.
-			ANativeWindow_release(windowSurface);
 		}
 		if (windowName == "" && changeSurface) {
-			LOGI("Default window surface changed (TextureView migration)");
+			LOGW("Default window surface should never change!");
 		}
 		winData.width = p_width;
 		winData.height = p_height;

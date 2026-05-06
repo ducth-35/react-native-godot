@@ -45,6 +45,7 @@ public class RTNGodotView extends SurfaceView implements SurfaceHolder.Callback2
 	private String windowName = "";
 
 	private GodotInputHandler mInputHandler;
+	private boolean isDestroyed = false;
 
 	public RTNGodotView(Context context) {
 		super(context);
@@ -100,6 +101,7 @@ public class RTNGodotView extends SurfaceView implements SurfaceHolder.Callback2
 
 	@Override
 	public void surfaceDestroyed(@NonNull SurfaceHolder surfaceHolder) {
+		if (isDestroyed) return;
 		Log.i(TAG, String.format("surfaceRemoved: %s %s", windowName, surfaceHolder.getSurface().toString()));
 		RTNLibGodot.getInstance().removeWindow(windowName);
 	}
@@ -152,5 +154,14 @@ public class RTNGodotView extends SurfaceView implements SurfaceHolder.Callback2
 		super.onPointerCaptureChange(hasCapture);
 		GodotInputHandler handler = getInputHandler();
 		if (handler != null) handler.onPointerCaptureChange(hasCapture);
+	}
+
+	public void destroy() {
+		if (isDestroyed) return;
+		isDestroyed = true;
+
+		getHolder().removeCallback(this);
+		RTNLibGodot.getInstance().removeWindow(windowName);
+		setVisibility(android.view.View.GONE);
 	}
 }

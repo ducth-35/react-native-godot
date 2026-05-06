@@ -27,6 +27,7 @@ package com.rtngodot;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import android.view.ViewGroup;
 
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReadableArray;
@@ -69,5 +70,15 @@ public class RTNGodotViewManager extends SimpleViewManager<RTNGodotView> impleme
 	@ReactProp(name = "windowName")
 	public void setWindowName(RTNGodotView view, @Nullable String text) {
 		view.setWindowName(text);
+	}
+
+	@Override
+	public void onDropViewInstance(@NonNull RTNGodotView view) {
+		super.onDropViewInstance(view);
+		view.destroy();
+		android.view.ViewParent parent = view.getParent();
+		if (parent instanceof ViewGroup) {
+			((ViewGroup) parent).removeView(view);
+		}
 	}
 }

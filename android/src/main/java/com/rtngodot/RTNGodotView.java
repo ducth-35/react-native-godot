@@ -29,23 +29,29 @@ import org.godotengine.godot.input.GodotInputHandler;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.graphics.SurfaceTexture;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.MotionEvent;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
+import android.view.Surface;
+import android.view.TextureView;
 import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
-public class RTNGodotView extends SurfaceView implements SurfaceHolder.Callback2 {
+public class RTNGodotView extends TextureView implements TextureView.SurfaceTextureListener {
 	private static final String TAG = "RTNGodotView";
 
 	private String windowName = "";
 
 	private GodotInputHandler mInputHandler;
 	private boolean isDestroyed = false;
+	/** True once setSurfaceTextureListener(this) has been called at least once. */
+	private boolean listenerRegistered = false;
+
+	/** The Surface currently used by Godot for this window. */
+	private Surface mCurrentSurface;
 
 	public RTNGodotView(Context context) {
 		super(context);
@@ -64,8 +70,16 @@ public class RTNGodotView extends SurfaceView implements SurfaceHolder.Callback2
 
 	private void configureComponent() {
 		mInputHandler = RTNLibGodot.getInstance().getInputHandler();
-		setLayoutParams(new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-		getHolder().addCallback(this);
+		setLayoutParams(new ViewGroup.LayoutParams(
+				ViewGroup.LayoutParams.MATCH_PARENT,
+				ViewGroup.LayoutParams.MATCH_PARENT));
+		// TextureView must be non-opaque to sit correctly inside React Native hierarchy.
+		// Hardware acceleration is required for TextureView to render.
+		setOpaque(false);
+		setLayerType(LAYER_TYPE_HARDWARE, null);
+		// DO NOT call setSurfaceTextureListener here.
+		// It is deferred to setWindowName() / onAttachedToWindow() so that
+		// windowName is guaranteed to be set before onSurfaceTextureAvailable fires.
 	}
 
 	private GodotInputHandler getInputHandler() {
@@ -76,35 +90,109 @@ public class RTNGodotView extends SurfaceView implements SurfaceHolder.Callback2
 	}
 
 	public void setWindowName(String newWindowName) {
-		windowName = newWindowName;
+		windowName = newWindowName != null ? newWindowName : "";
+		// Register the listener now that windowName is finalised.
+		// If the SurfaceTexture is already available, Android fires
+		// onSurfaceTextureAvailable immediately upon setSurfaceTextureListener.
+		if (!isDestroyed) {
+			listenerRegistered = true;
+			setSurfaceTextureListener(this);
+		}
+	}
+
+	/**
+	 * Safety net: if windowName prop is never set, setWindowName() is never called
+	 * and the listener is never registered. onAttachedToWindow() fires after all
+	 * props have been applied (both Fabric and Paper), making it a safe fallback.
+	 */
+	@Override
+	protected void onAttachedToWindow() {
+		super.onAttachedToWindow();
+		if (!isDestroyed && !listenerRegistered) {
+			listenerRegistered = true;
+			setSurfaceTextureListener(this);
+		}
 	}
 
 	public String getWindowName() {
 		return windowName;
 	}
 
-	@Override
-	public void surfaceRedrawNeeded(@NonNull SurfaceHolder surfaceHolder) {
-		Log.i(TAG, String.format("surfaceRedrawNeeded: %s %s", windowName, surfaceHolder.getSurface().toString()));
-	}
+	// ── TextureView.SurfaceTextureListener ────────────────────────────────────
 
 	@Override
-	public void surfaceCreated(@NonNull SurfaceHolder surfaceHolder) {
-		Log.i(TAG, String.format("surfaceCreated: %s %s", windowName, surfaceHolder.getSurface().toString()));
-	}
-
-	@Override
-	public void surfaceChanged(@NonNull SurfaceHolder surfaceHolder, int format, int width, int height) {
-		Log.i(TAG, String.format("surfaceChanged: %s %s %d %d %d", windowName, surfaceHolder.getSurface().toString(), format, width, height));
-		RTNLibGodot.getInstance().updateWindow(windowName, getSurfaceControl(), surfaceHolder, format, width, height);
-	}
-
-	@Override
-	public void surfaceDestroyed(@NonNull SurfaceHolder surfaceHolder) {
+	public void onSurfaceTextureAvailable(@NonNull SurfaceTexture st, int width, int height) {
 		if (isDestroyed) return;
-		Log.i(TAG, String.format("surfaceRemoved: %s %s", windowName, surfaceHolder.getSurface().toString()));
-		RTNLibGodot.getInstance().removeWindow(windowName);
+		Log.i(TAG, String.format("onSurfaceTextureAvailable: '%s' %dx%d", windowName, width, height));
+		// Release any stale surface first (e.g. back-to-back availability callbacks,
+		// or setSurfaceTextureListener called a second time when surface is already live).
+		if (mCurrentSurface != null) {
+			RTNLibGodot.getInstance().removeWindow(windowName);
+			mCurrentSurface.release();
+			mCurrentSurface = null;
+		}
+		mCurrentSurface = new Surface(st);
+		RTNLibGodot.getInstance().updateWindow(windowName, mCurrentSurface, width, height);
 	}
+
+	@Override
+	public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture st, int width, int height) {
+		if (isDestroyed) return;
+		Log.i(TAG, String.format("onSurfaceTextureSizeChanged: '%s' %dx%d", windowName, width, height));
+		if (mCurrentSurface != null && mCurrentSurface.isValid()) {
+			RTNLibGodot.getInstance().updateWindow(windowName, mCurrentSurface, width, height);
+		}
+	}
+
+	@Override
+	public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture st) {
+		Log.i(TAG, String.format("onSurfaceTextureDestroyed: '%s'", windowName));
+		// destroy() may have already cleaned up (onDropViewInstance path).
+		// releaseCurrentSurface() is idempotent (nulls mCurrentSurface after first call),
+		// so it is safe to call here regardless.
+		releaseCurrentSurface();
+		// Return true so the platform releases the SurfaceTexture immediately.
+		return true;
+	}
+
+	@Override
+	public void onSurfaceTextureUpdated(@NonNull SurfaceTexture st) {
+		// no-op — Godot drives its own render loop
+	}
+
+	// ── Surface lifecycle helpers ─────────────────────────────────────────────
+
+	/**
+	 * Releases the Surface held by this view and notifies Godot.
+	 * Safe to call multiple times — guarded by mCurrentSurface null-check.
+	 * Does NOT depend on isDestroyed so that both destroy() and
+	 * onSurfaceTextureDestroyed() can safely call it.
+	 */
+	private void releaseCurrentSurface() {
+		// Tell Godot first, while the surface reference is still alive.
+		RTNLibGodot.getInstance().removeWindow(windowName);
+		// Then release the Java-side Surface handle.
+		if (mCurrentSurface != null) {
+			mCurrentSurface.release();
+			mCurrentSurface = null;
+		}
+	}
+
+	// ── Called by RTNGodotViewManager.onDropViewInstance ─────────────────────
+
+	public void destroy() {
+		if (isDestroyed) return;
+		// Stop receiving any future SurfaceTexture callbacks first.
+		setSurfaceTextureListener(null);
+		listenerRegistered = false;
+		// Notify Godot and release the surface before marking destroyed,
+		// so releaseCurrentSurface() can still reach RTNLibGodot.
+		releaseCurrentSurface();
+		isDestroyed = true;
+		setVisibility(android.view.View.GONE);
+	}
+
+	// ── Touch / pointer input ─────────────────────────────────────────────────
 
 	@SuppressLint("ClickableViewAccessibility")
 	@Override
@@ -129,17 +217,11 @@ public class RTNGodotView extends SurfaceView implements SurfaceHolder.Callback2
 		return handler.onGenericMotionEvent(event);
 	}
 
-	private boolean canCapturePointer() {
-		return true;
-	}
-
 	@Override
 	public void requestPointerCapture() {
-		if (canCapturePointer()) {
-			super.requestPointerCapture();
-			GodotInputHandler handler = getInputHandler();
-			if (handler != null) handler.onPointerCaptureChange(true);
-		}
+		super.requestPointerCapture();
+		GodotInputHandler handler = getInputHandler();
+		if (handler != null) handler.onPointerCaptureChange(true);
 	}
 
 	@Override
@@ -154,14 +236,5 @@ public class RTNGodotView extends SurfaceView implements SurfaceHolder.Callback2
 		super.onPointerCaptureChange(hasCapture);
 		GodotInputHandler handler = getInputHandler();
 		if (handler != null) handler.onPointerCaptureChange(hasCapture);
-	}
-
-	public void destroy() {
-		if (isDestroyed) return;
-		isDestroyed = true;
-
-		getHolder().removeCallback(this);
-		RTNLibGodot.getInstance().removeWindow(windowName);
-		setVisibility(android.view.View.GONE);
 	}
 }

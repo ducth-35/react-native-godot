@@ -231,7 +231,10 @@ GDExtensionBool GDE_EXPORT gdextension_default_init(GDExtensionInterfaceGetProcA
 }
 }
 
-static void frameCallback64(int64_t frameTimeNanos, void *data) {
+// AChoreographer_postFrameCallback64 requires API 29.
+// Use AChoreographer_postFrameCallback (API 24) with a long-based callback.
+// On arm64/x86_64 'long' is 64-bit, so precision is identical.
+static void frameCallback(long frameTimeNanos, void *data) {
 	GodotModule *self = (GodotModule *)data;
 	if (!self->is_paused()) {
 		godot::GodotInstance *instance = self->get_instance();
@@ -241,7 +244,7 @@ static void frameCallback64(int64_t frameTimeNanos, void *data) {
 			instance->iteration();
 		}
 		AChoreographer *choreographer = AChoreographer_getInstance();
-		AChoreographer_postFrameCallback64(choreographer, frameCallback64, data);
+		AChoreographer_postFrameCallback(choreographer, frameCallback, data);
 	}
 }
 
@@ -348,12 +351,15 @@ godot::GodotInstance *GodotModule::get_or_create_instance(std::vector<std::strin
 
 	if (instance->start()) {
 		AChoreographer *choreographer = AChoreographer_getInstance();
-		AChoreographer_postFrameCallback64(choreographer, frameCallback64, this);
+		AChoreographer_postFrameCallback(choreographer, frameCallback, this);
 	}
 
 	{
 		std::lock_guard lock(_mutex);
-
+		// Acquire our own reference so updateWindowNative() can freely
+		// release/replace windowMap[""].surface without causing a double-free
+		// when destroy_instance() later calls ANativeWindow_release(mainNativeWindow).
+		ANativeWindow_acquire(mainNativeWindow);
 		data->mainNativeWindow = mainNativeWindow;
 		data->mainSurface = nativeSurface;
 		data->contentScaleFactor = contentScaleFactor;
@@ -523,7 +529,7 @@ void GodotModule::updateState() {
 		// Register the frame callback again
 		data->thread.enqueue([this]() {
 			AChoreographer *choreographer = AChoreographer_getInstance();
-			AChoreographer_postFrameCallback64(choreographer, frameCallback64, this);
+			AChoreographer_postFrameCallback(choreographer, frameCallback, this);
 		});
 	}
 }

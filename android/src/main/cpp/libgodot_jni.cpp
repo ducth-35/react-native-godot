@@ -163,11 +163,29 @@ static std::function<void()> createUpdateWindowFunc(std::string p_window_name, i
 	return [p_window_name, p_width, p_height, p_window_surface, p_change_surface]() {
 		godot::DisplayServerEmbedded *dse = godot::DisplayServerEmbedded::get_singleton();
 		int32_t windowId = -1;
+
 		if (p_window_name == "") {
-			// Default id
+			// ── Main window (id 0) ──────────────────────────────────────────────
+			// When the TextureView surface changes (e.g. first attach, or navigation),
+			// redirect the root Window's rendering surface to the new ANativeWindow.
+			if (p_change_surface && p_window_surface != nullptr) {
+				godot::MainLoop *mainLoop = godot::Engine::get_singleton()->get_main_loop();
+				godot::SceneTree *sceneTree = godot::Object::cast_to<godot::SceneTree>(mainLoop);
+				if (sceneTree) {
+					godot::Window *root = sceneTree->get_root();
+					if (root) {
+						LOGI("Main window: redirecting surface (%dx%d)", p_width, p_height);
+						godot::Ref<godot::RenderingNativeSurfaceAndroid> androidSurface =
+								godot::RenderingNativeSurfaceAndroid::create(
+										(uint64_t)p_window_surface, p_width, p_height);
+						root->set_native_surface(androidSurface);
+					}
+				}
+			}
 			windowId = 0;
 		} else {
-			// Find window
+			// ── Named sub-window ────────────────────────────────────────────────
+			// This is the fully supported, production-tested path.
 			godot::MainLoop *mainLoop = godot::Engine::get_singleton()->get_main_loop();
 			godot::SceneTree *sceneTree = godot::Object::cast_to<godot::SceneTree>(mainLoop);
 			if (!sceneTree) {
@@ -189,19 +207,22 @@ static std::function<void()> createUpdateWindowFunc(std::string p_window_name, i
 				}
 
 				if (change_surface) {
-					LOGI("Changing surface");
-					godot::Ref<godot::RenderingNativeSurfaceAndroid> androidSurface = godot::RenderingNativeSurfaceAndroid::create(
-							(uint64_t)p_window_surface, p_width, p_height);
-
+					LOGI("Sub-window '%s': attaching surface (%dx%d)", p_window_name.c_str(), p_width, p_height);
+					godot::Ref<godot::RenderingNativeSurfaceAndroid> androidSurface =
+							godot::RenderingNativeSurfaceAndroid::create(
+									(uint64_t)p_window_surface, p_width, p_height);
 					newWindow->set_visible(true);
 					newWindow->set_native_surface(androidSurface);
 				}
 
 				windowId = newWindow->get_window_id();
+			} else {
+				LOGW("Sub-window node '%s' not found in scene tree", p_window_name.c_str());
 			}
 		}
+
 		if (windowId >= 0) {
-			LOGI("Resizing Window: %d %d %d", windowId, p_width, p_height);
+			LOGI("Resizing Window id=%d to %dx%d", windowId, p_width, p_height);
 			dse->resize_window(godot::Vector2i(p_width, p_height), windowId);
 			{
 				std::lock_guard<std::recursive_mutex> lock(windowMapMutex);
@@ -234,11 +255,16 @@ void LibGodot::updateWindowNative(JNIEnv *env, jstring p_name, jobject p_surface
 
 		WindowData &winData = windowMap[windowName];
 		if (winData.surface != windowSurface) {
+			// Release the old ANativeWindow before replacing it to prevent
+			// resource leaks when the TextureView is recreated on navigation.
+			if (winData.surface != nullptr) {
+				ANativeWindow_release(winData.surface);
+			}
 			changeSurface = true;
 			winData.surface = windowSurface;
-		}
-		if (windowName == "" && changeSurface) {
-			LOGW("Default window surface should never change!");
+		} else {
+			// Same pointer — we acquired a duplicate reference; release it.
+			ANativeWindow_release(windowSurface);
 		}
 		winData.width = p_width;
 		winData.height = p_height;
@@ -258,7 +284,20 @@ void LibGodot::removeWindowNative(JNIEnv *env, jstring p_name) {
 		env->ReleaseStringUTFChars(p_name, val);
 	}
 	if (windowName == "") {
-		// Default window cannot be removed
+		// Main window: tell Godot to stop rendering before the Java surface is released.
+		// Without this, the Choreographer frame loop may render to an already-released
+		// EGLSurface causing SIGSEGV.
+		godot::GodotInstance *instance = GodotModule::get_singleton()->get_instance();
+		if (instance && instance->is_started()) {
+			GodotModule::get_singleton()->runOnGodotThread([]() {
+				godot::DisplayServerEmbedded *dse = godot::DisplayServerEmbedded::get_singleton();
+				if (dse) {
+					LOGI("Main window: detaching surface (removeWindowNative)");
+					godot::Ref<godot::RenderingNativeSurface> nullSurface;
+					dse->set_native_surface(nullSurface);
+				}
+			}, true); // wait=true: block until Godot has stopped rendering
+		}
 		return;
 	}
 	{
@@ -274,7 +313,6 @@ void LibGodot::removeWindowNative(JNIEnv *env, jstring p_name) {
 		godot::GodotInstance *instance = GodotModule::get_singleton()->get_instance();
 		if (instance && instance->is_started()) {
 			GodotModule::get_singleton()->runOnGodotThread([windowName, windowSurface]() {
-				godot::DisplayServerEmbedded *dse = godot::DisplayServerEmbedded::get_singleton();
 				{
 					// Find window
 					godot::MainLoop *mainLoop = godot::Engine::get_singleton()->get_main_loop();
